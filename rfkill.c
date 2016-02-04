@@ -289,6 +289,71 @@ static int rfkill_block(__u8 block, const char *param)
 	return 0;
 }
 
+static int rfkill_airplane_mode_set(__u8 active, int fd)
+{
+	struct rfkill_event event;
+	ssize_t len;
+
+	memset(&event, 0, sizeof(event));
+	event.op = RFKILL_OP_AIRPLANE_MODE_INDICATOR_CHANGE;
+	event.soft = active;
+	len = write(fd, &event, sizeof(event));
+	fprintf(stdout, "airplane-mode indicator %sset %s\n",
+		active ? "" : "un", len < 0 ? "failed" : "succeeded");
+
+	return len < 0;
+}
+
+static int rfkill_airplane_mode(void)
+{
+	struct rfkill_event event;
+	char command[8];
+	ssize_t len;
+	int fd;
+	int out = 0;
+
+	/* fd has to be held open throughout the session */
+	fd = open("/dev/rfkill", O_RDWR);
+	if (fd < 0) {
+		perror("Can't open RFKILL control device");
+		return 1;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.op = RFKILL_OP_AIRPLANE_MODE_INDICATOR_ACQUIRE;
+	len = write(fd, &event, sizeof(event));
+	if (len < 0) {
+		perror("Failed to acquire airplane-mode control");
+		close(fd);
+		return 1;
+	}
+
+	fprintf(stdout, "airplane-mode control acquired\n");
+	fprintf(stdout, "\tavailable commands:\n");
+	fprintf(stdout, "\t set -- sets the airplane-mode indicator\n");
+	fprintf(stdout, "\t unset -- unsets the airplane-mode indicator\n");
+	fprintf(stdout, "\t quit -- ends session\n");
+
+	while (!out && scanf("%s", command) != EOF) {
+		int ret = 0;
+
+		if (strcmp(command, "set") == 0)
+			ret = rfkill_airplane_mode_set(1,fd);
+		else if (strcmp(command, "unset") == 0)
+			ret = rfkill_airplane_mode_set(0,fd);
+		else if (strcmp(command, "quit") == 0)
+			out = 1;
+
+		if (ret)
+			return ret;
+	}
+
+	fprintf(stdout, "Closing RFKILL control device and exiting\n");
+	close(fd);
+
+	return 0;
+}
+
 static const char *argv0;
 
 static void usage(void)
@@ -301,6 +366,7 @@ static void usage(void)
 	fprintf(stderr, "Commands:\n");
 	fprintf(stderr, "\thelp\n");
 	fprintf(stderr, "\tevent\n");
+	fprintf(stderr, "\tairplane-mode\n");
 	fprintf(stderr, "\tlist [IDENTIFIER]\n");
 	fprintf(stderr, "\tblock IDENTIFIER\n");
 	fprintf(stderr, "\tunblock IDENTIFIER\n");
@@ -348,6 +414,8 @@ int main(int argc, char **argv)
 		argc--;
 		argv++;
 		ret = rfkill_block(0,*argv);
+	} else if (strcmp(*argv, "airplane-mode") == 0) {
+		ret = rfkill_airplane_mode();
 	} else {
 		usage();
 		return 1;
